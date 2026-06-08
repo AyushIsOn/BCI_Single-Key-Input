@@ -44,6 +44,13 @@
   .stat:last-child{border:none;}
   .stat b{font-variant-numeric:tabular-nums;}
   kbd{background:#21262d;border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12px;}
+  .prompt{background:var(--panel);border:1px solid var(--border);border-radius:12px;
+    padding:12px 16px;margin-bottom:12px;}
+  .prompt-label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px;}
+  .prompt-target{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:20px;letter-spacing:1px;}
+  .prompt-target .done{color:var(--a3);}
+  .prompt-target .next{color:var(--a4);text-decoration:underline;}
+  .prompt-target .todo{color:var(--muted);}
 </style>
 </head>
 <body>
@@ -57,6 +64,10 @@
 
 <div class="main">
   <div class="left">
+    <div class="prompt" id="prompt" style="display:none">
+      <div class="prompt-label">type this phrase</div>
+      <div class="prompt-target" id="promptTarget"></div>
+    </div>
     <div class="stage">
       <canvas id="cv" width="640" height="640"></canvas>
       <div class="hud" id="hud">move from the center →</div>
@@ -100,6 +111,23 @@
       <div class="stat"><span>Time</span><b id="elapsed">0.0 s</b></div>
       <div class="stat"><span>Effective WPM</span><b id="wpm">0.0</b></div>
     </div>
+
+    <div class="card" id="studyCard">
+      <h2>Pilot study mode</h2>
+      <p style="margin:0 0 10px">Collect real surrogate-cursor data: type the prompted
+        phrases, then export a CSV. Run a few participants (mouse / trackpad / eye-tracker)
+        to get pilot results for the paper.</p>
+      <div class="controls" style="margin-bottom:8px">
+        <input id="pid" placeholder="participant id" style="background:#0a0d13;color:var(--text);
+          border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;width:130px" />
+        <button id="startStudy">Start study</button>
+        <button id="exportCsv">Export CSV</button>
+      </div>
+      <div class="stat"><span>Phrase</span><b id="phraseIdx">– / –</b></div>
+      <div class="stat"><span>Trials logged</span><b id="nTrials">0</b></div>
+      <div class="stat"><span>Last phrase WPM</span><b id="lastWpm">–</b></div>
+      <div class="stat"><span>Last phrase error</span><b id="lastErr">–</b></div>
+    </div>
   </div>
 </div>
 
@@ -135,6 +163,22 @@ let started = null;
 let nChar = 0;
 let highlight = -1;
 let flashT = 0, flashIdx = -1;
+
+// ---- pilot study state ----
+const PHRASES = [
+  "the quick brown fox",
+  "she sells sea shells",
+  "to be or not to be",
+  "love what you do",
+  "every step brings us closer",
+];
+const study = {
+  active:false, pid:"", phraseIdx:0, target:"",
+  startT:0, lastCommitT:0, log:[], trials:[],
+};
+
+function pred01(){ return document.getElementById("predict").checked ? 1 : 0; }
+function noise01(){ return document.getElementById("noise").checked ? 1 : 0; }
 
 function probs(){
   const usePred = document.getElementById("predict").checked;
@@ -187,12 +231,37 @@ function inArc(ang, ar){
 
 function commit(ch){
   if(!started) started = performance.now();
+  const now = performance.now();
+
+  // --- study logging: record this commit against the expected target char ---
+  if(study.active){
+    // expected char = next not-yet-correctly-entered char of the target.
+    // We compare the plain typed string to target prefix.
+    const typedPlain = text.replace(/\u2423/g," "); // safety
+    const expected = study.target[typedPlain.length] || "";
+    const committedPlain = (ch===SPACE)?" ":(ch===BKSP)?"<bksp>":ch;
+    const dt = (now - study.lastCommitT)/1000;
+    study.log.push({
+      pid: study.pid, phrase: study.phraseIdx,
+      prediction: pred01(), tremor: noise01(),
+      idx: study.log.length,
+      expected: expected===" "?"<sp>":expected,
+      committed: committedPlain===" "?"<sp>":committedPlain,
+      correct: (committedPlain===expected)?1:0,
+      dt_s: dt.toFixed(3),
+    });
+    study.lastCommitT = now;
+  }
+
   if(ch===BKSP){ text = text.slice(0,-1); lastCommitChar = text.slice(-1)||"␣"; }
   else if(ch===SPACE){ text += " "; lastCommitChar = "␣"; nChar++; }
   else { text += ch; lastCommitChar = ch; nChar++; }
   flashT = 1; flashIdx = CANDS.indexOf(ch);
+
+  if(study.active) checkPhraseDone();
   render();
   updateText();
+  updatePrompt();
 }
 
 function updateText(){
@@ -286,6 +355,105 @@ function render(){
 }
 
 function loop(){ render(); requestAnimationFrame(loop); }
+
+// ---------------- pilot study controls ----------------
+function startStudy(){
+  study.pid = (document.getElementById("pid").value || "anon").trim();
+  study.active = true;
+  study.phraseIdx = 0;
+  study.log = [];
+  study.trials = [];
+  document.getElementById("prompt").style.display = "block";
+  loadPhrase(0);
+}
+
+function loadPhrase(i){
+  study.phraseIdx = i;
+  study.target = PHRASES[i];
+  text = ""; lastCommitChar = "␣"; nChar = 0;
+  started = null;
+  study.startT = performance.now();
+  study.lastCommitT = performance.now();
+  document.getElementById("phraseIdx").textContent = `${i+1} / ${PHRASES.length}`;
+  updatePrompt();
+  updateText();
+}
+
+function updatePrompt(){
+  if(!study.active) return;
+  const t = study.target;
+  const typed = text;
+  let html = "";
+  for(let k=0;k<t.length;k++){
+    const cls = k<typed.length ? (typed[k]===t[k]?"done":"todo")
+              : (k===typed.length?"next":"todo");
+    const c = t[k]===" " ? "␣" : t[k];
+    html += `<span class="${cls}">${c}</span>`;
+  }
+  document.getElementById("promptTarget").innerHTML = html;
+}
+
+function checkPhraseDone(){
+  // phrase ends when the typed length reaches target length (with at least
+  // the right length); we score by character match against the target.
+  if(text.length >= study.target.length){
+    finishPhrase();
+  }
+}
+
+function finishPhrase(){
+  const secs = (performance.now() - study.startT)/1000;
+  const t = study.target;
+  // character error rate on the final transcribed string vs target
+  let wrong = 0;
+  for(let k=0;k<t.length;k++) if(text[k]!==t[k]) wrong++;
+  const cer = wrong / t.length;
+  const wpm = (t.length/5)/(secs/60);
+  // KSPC = total commits this phrase / target length
+  const commits = study.log.filter(r=>r.phrase===study.phraseIdx).length;
+  const kspc = commits / t.length;
+  study.trials.push({
+    pid: study.pid, phrase: study.phraseIdx, target: t,
+    prediction: pred01(), tremor: noise01(),
+    seconds: secs.toFixed(2), wpm: wpm.toFixed(2),
+    cer: (cer*100).toFixed(1), kspc: kspc.toFixed(2),
+  });
+  document.getElementById("nTrials").textContent = study.trials.length;
+  document.getElementById("lastWpm").textContent = wpm.toFixed(1);
+  document.getElementById("lastErr").textContent = (cer*100).toFixed(0)+"%";
+
+  const next = study.phraseIdx + 1;
+  if(next < PHRASES.length){
+    setTimeout(()=>loadPhrase(next), 600);
+  } else {
+    study.active = false;
+    document.getElementById("hud").textContent = "study complete — export your CSV";
+    document.getElementById("promptTarget").innerHTML =
+      '<span class="done">✓ all phrases done — click Export CSV</span>';
+  }
+}
+
+function exportCsv(){
+  // two CSVs concatenated: per-trial summary + per-commit keystroke log
+  const trialHead = "pid,phrase,target,prediction,tremor,seconds,wpm,cer_pct,kspc";
+  const trialRows = study.trials.map(r=>
+    [r.pid,r.phrase,`"${r.target}"`,r.prediction,r.tremor,r.seconds,r.wpm,r.cer,r.kspc].join(","));
+  const logHead = "pid,phrase,prediction,tremor,idx,expected,committed,correct,dt_s";
+  const logRows = study.log.map(r=>
+    [r.pid,r.phrase,r.prediction,r.tremor,r.idx,r.expected,r.committed,r.correct,r.dt_s].join(","));
+  const csv = "# TRIAL SUMMARY\n" + trialHead + "\n" + trialRows.join("\n")
+            + "\n\n# KEYSTROKE LOG\n" + logHead + "\n" + logRows.join("\n") + "\n";
+  const blob = new Blob([csv], {type:"text/csv"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `flowdial_${study.pid||"anon"}_${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+document.getElementById("startStudy").onclick = startStudy;
+document.getElementById("exportCsv").onclick = exportCsv;
+
 
 cv.addEventListener("mousemove", e=>{
   const rect = cv.getBoundingClientRect();
