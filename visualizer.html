@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Radial Code Keyboard - Layout Visualizer</title>
+<style>
+  :root {
+    --bg: #0e1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --letter: #1f6feb;
+    --symbol: #f85149;
+    --center: #ffd33d;
+    --accent: #2ea043;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    padding: 24px 32px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+  .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    padding: 24px 32px;
+    align-items: flex-start;
+  }
+  .left { flex: 1 1 560px; min-width: 360px; }
+  .right { flex: 0 1 360px; min-width: 300px; }
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  button.tab {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all .15s;
+  }
+  button.tab:hover { border-color: var(--muted); }
+  button.tab.active {
+    background: var(--letter);
+    border-color: var(--letter);
+    color: #fff;
+    font-weight: 600;
+  }
+  .stage {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px;
+  }
+  svg { width: 100%; height: auto; display: block; }
+  .key text { font-weight: 600; pointer-events: none; }
+  .key circle { transition: r .15s, opacity .15s; cursor: default; }
+  .legend {
+    display: flex;
+    gap: 18px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .panel-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+  .panel-card h2 { margin: 0 0 10px; font-size: 15px; }
+  .demo-input {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 14px;
+  }
+  .demo-input:focus { outline: none; border-color: var(--letter); }
+  .hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .best { color: var(--accent); font-weight: 700; }
+  code { background: #21262d; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .ring-list { font-family: ui-monospace, monospace; font-size: 13px; }
+  .ring-list b { color: var(--center); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Radial Code Keyboard &mdash; Layout Visualizer</h1>
+  <p>The proposed code-optimized circular layout, drawn from the exact coordinates used in the simulation. Hover a key to inspect it; type below to watch the single cursor travel.</p>
+</header>
+
+<div class="wrap">
+  <div class="left">
+    <div class="controls" id="tabs"></div>
+    <div class="stage">
+      <svg id="board" viewBox="-1.5 -1.5 3 3" aria-label="keyboard layout"></svg>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--center)"></i> center (fastest)</span>
+      <span><i class="dot" style="background:var(--letter)"></i> letter / digit</span>
+      <span><i class="dot" style="background:var(--symbol)"></i> code symbol</span>
+      <span>dot size &prop; code frequency &middot; <code>+</code> = cursor rest point</span>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="panel-card">
+      <h2>Try it &mdash; type some code</h2>
+      <input class="demo-input" id="demo" value="def f(x): return x" autocomplete="off" spellcheck="false" />
+      <p class="hint">The yellow path shows the cursor route between consecutive keys on the <b>currently selected</b> layout. Shorter, less tangled path = faster &amp; fewer errors.</p>
+      <p class="hint" id="reachMsg"></p>
+    </div>
+
+    <div class="panel-card">
+      <h2>Why this layout wins for code</h2>
+      <p class="ring-list" id="ringInfo"></p>
+      <p class="hint">High-frequency code symbols sit in the fast inner rings instead of behind a <code>123</code> layer toggle. That is the core idea of the paper.</p>
+    </div>
+
+    <div class="panel-card">
+      <h2>Simulated code-entry results</h2>
+      <table>
+        <thead><tr><th>Layout</th><th class="num">Eff. WPM</th><th class="num">KSPC</th><th class="num">Reach</th></tr></thead>
+        <tbody>
+          <tr><td>QWERTY-swipe</td><td class="num">13.6</td><td class="num">1.63</td><td class="num">84%</td></tr>
+          <tr><td>Radial prose</td><td class="num">15.9</td><td class="num">1.31</td><td class="num">87%</td></tr>
+          <tr><td class="best">Radial code</td><td class="num best">18.8</td><td class="num best">1.16</td><td class="num best">100%</td></tr>
+        </tbody>
+      </table>
+      <p class="hint">~8 BPS gaze/BCI-like cursor. See <code>results.py</code> to reproduce.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA = {"qwerty_grid": [{"ch": "q", "x": -1.0, "y": 0.3333, "sym": false, "freq": 1}, {"ch": "w", "x": -0.7778, "y": 0.3333, "sym": false, "freq": 11}, {"ch": "e", "x": -0.5556, "y": 0.3333, "sym": false, "freq": 95}, {"ch": "r", "x": -0.3333, "y": 0.3333, "sym": false, "freq": 61}, {"ch": "t", "x": -0.1111, "y": 0.3333, "sym": false, "freq": 99}, {"ch": "y", "x": 0.1111, "y": 0.3333, "sym": false, "freq": 16}, {"ch": "u", "x": 0.3333, "y": 0.3333, "sym": false, "freq": 24}, {"ch": "i", "x": 0.5556, "y": 0.3333, "sym": false, "freq": 78}, {"ch": "o", "x": 0.7778, "y": 0.3333, "sym": false, "freq": 58}, {"ch": "p", "x": 1.0, "y": 0.3333, "sym": false, "freq": 26}, {"ch": "a", "x": -0.8889, "y": 0.1111, "sym": false, "freq": 56}, {"ch": "s", "x": -0.6667, "y": 0.1111, "sym": false, "freq": 72}, {"ch": "d", "x": -0.4444, "y": 0.1111, "sym": false, "freq": 9}, {"ch": "f", "x": -0.2222, "y": 0.1111, "sym": false, "freq": 46}, {"ch": "g", "x": 0.0, "y": 0.1111, "sym": false, "freq": 13}, {"ch": "h", "x": 0.2222, "y": 0.1111, "sym": false, "freq": 14}, {"ch": "j", "x": 0.4444, "y": 0.1111, "sym": false, "freq": 2}, {"ch": "k", "x": 0.6667, "y": 0.1111, "sym": false, "freq": 14}, {"ch": "l", "x": 0.8889, "y": 0.1111, "sym": false, "freq": 40}, {"ch": "z", "x": -0.6667, "y": -0.1111, "sym": false, "freq": 1}, {"ch": "x", "x": -0.4444, "y": -0.1111, "sym": false, "freq": 1}, {"ch": "c", "x": -0.2222, "y": -0.1111, "sym": false, "freq": 42}, {"ch": "v", "x": 0.0, "y": -0.1111, "sym": false, "freq": 5}, {"ch": "b", "x": 0.2222, "y": -0.1111, "sym": false, "freq": 8}, {"ch": "n", "x": 0.4444, "y": -0.1111, "sym": false, "freq": 71}, {"ch": "m", "x": 0.6667, "y": -0.1111, "sym": false, "freq": 21}, {"ch": " ", "x": 0.0, "y": -0.3333, "sym": false, "freq": 450}], "radial_prose": [{"ch": " ", "x": 0.12, "y": 0.0, "sym": false, "freq": 450}, {"ch": "e", "x": -0.12, "y": 0.0, "sym": false, "freq": 95}, {"ch": "s", "x": 0.45, "y": 0.0, "sym": false, "freq": 72}, {"ch": "t", "x": 0.3641, "y": 0.2645, "sym": false, "freq": 99}, {"ch": "h", "x": 0.1391, "y": 0.428, "sym": false, "freq": 14}, {"ch": "o", "x": -0.1391, "y": 0.428, "sym": false, "freq": 58}, {"ch": "a", "x": -0.3641, "y": 0.2645, "sym": false, "freq": 56}, {"ch": "r", "x": -0.45, "y": 0.0, "sym": false, "freq": 61}, {"ch": "l", "x": -0.3641, "y": -0.2645, "sym": false, "freq": 40}, {"ch": "i", "x": -0.1391, "y": -0.428, "sym": false, "freq": 78}, {"ch": "w", "x": 0.1391, "y": -0.428, "sym": false, "freq": 11}, {"ch": "n", "x": 0.3641, "y": -0.2645, "sym": false, "freq": 71}, {"ch": "f", "x": 0.7534, "y": 0.2019, "sym": false, "freq": 46}, {"ch": "u", "x": 0.5515, "y": 0.5515, "sym": false, "freq": 24}, {"ch": "d", "x": 0.2019, "y": 0.7534, "sym": false, "freq": 9}, {"ch": "b", "x": -0.2019, "y": 0.7534, "sym": false, "freq": 8}, {"ch": ",", "x": -0.5515, "y": 0.5515, "sym": true, "freq": 15}, {"ch": "g", "x": -0.7534, "y": 0.2019, "sym": false, "freq": 13}, {"ch": "m", "x": -0.7534, "y": -0.2019, "sym": false, "freq": 21}, {"ch": ".", "x": -0.5515, "y": -0.5515, "sym": true, "freq": 35}, {"ch": "p", "x": -0.2019, "y": -0.7534, "sym": false, "freq": 26}, {"ch": "c", "x": 0.2019, "y": -0.7534, "sym": false, "freq": 42}, {"ch": "v", "x": 0.5515, "y": -0.5515, "sym": false, "freq": 5}, {"ch": "y", "x": 0.7534, "y": -0.2019, "sym": false, "freq": 16}, {"ch": "q", "x": 1.05, "y": 0.0, "sym": false, "freq": 1}, {"ch": "j", "x": 0.525, "y": 0.9093, "sym": false, "freq": 2}, {"ch": "k", "x": -0.525, "y": 0.9093, "sym": false, "freq": 14}, {"ch": "x", "x": -1.05, "y": 0.0, "sym": false, "freq": 1}, {"ch": "z", "x": -0.525, "y": -0.9093, "sym": false, "freq": 1}, {"ch": "'", "x": 0.525, "y": -0.9093, "sym": true, "freq": 0}], "radial_code": [{"ch": " ", "x": 0.12, "y": 0.0, "sym": false, "freq": 450}, {"ch": "t", "x": -0.12, "y": 0.0, "sym": false, "freq": 99}, {"ch": "e", "x": 0.42, "y": 0.0, "sym": false, "freq": 95}, {"ch": "i", "x": 0.3398, "y": 0.2469, "sym": false, "freq": 78}, {"ch": "s", "x": 0.1298, "y": 0.3994, "sym": false, "freq": 72}, {"ch": "n", "x": -0.1298, "y": 0.3994, "sym": false, "freq": 71}, {"ch": "r", "x": -0.3398, "y": 0.2469, "sym": false, "freq": 61}, {"ch": "o", "x": -0.42, "y": 0.0, "sym": false, "freq": 58}, {"ch": "a", "x": -0.3398, "y": -0.2469, "sym": false, "freq": 56}, {"ch": "f", "x": -0.1298, "y": -0.3994, "sym": false, "freq": 46}, {"ch": "c", "x": 0.1298, "y": -0.3994, "sym": false, "freq": 42}, {"ch": "l", "x": 0.3398, "y": -0.2469, "sym": false, "freq": 40}, {"ch": ".", "x": 0.6435, "y": 0.1469, "sym": true, "freq": 35}, {"ch": "(", "x": 0.516, "y": 0.4115, "sym": true, "freq": 33}, {"ch": ")", "x": 0.2864, "y": 0.5946, "sym": true, "freq": 33}, {"ch": "=", "x": 0.0, "y": 0.66, "sym": true, "freq": 28}, {"ch": "p", "x": -0.2864, "y": 0.5946, "sym": false, "freq": 26}, {"ch": "u", "x": -0.516, "y": 0.4115, "sym": false, "freq": 24}, {"ch": "m", "x": -0.6435, "y": 0.1469, "sym": false, "freq": 21}, {"ch": "y", "x": -0.6435, "y": -0.1469, "sym": false, "freq": 16}, {"ch": ",", "x": -0.516, "y": -0.4115, "sym": true, "freq": 15}, {"ch": ":", "x": -0.2864, "y": -0.5946, "sym": true, "freq": 15}, {"ch": "h", "x": -0.0, "y": -0.66, "sym": false, "freq": 14}, {"ch": "k", "x": 0.2864, "y": -0.5946, "sym": false, "freq": 14}, {"ch": ";", "x": 0.516, "y": -0.4115, "sym": true, "freq": 13}, {"ch": "g", "x": 0.6435, "y": -0.1469, "sym": false, "freq": 13}, {"ch": "w", "x": 0.88, "y": 0.0, "sym": false, "freq": 11}, {"ch": "d", "x": 0.8269, "y": 0.301, "sym": false, "freq": 9}, {"ch": "\"", "x": 0.6741, "y": 0.5657, "sym": true, "freq": 8}, {"ch": "b", "x": 0.44, "y": 0.7621, "sym": false, "freq": 8}, {"ch": "{", "x": 0.1528, "y": 0.8666, "sym": true, "freq": 8}, {"ch": "}", "x": -0.1528, "y": 0.8666, "sym": true, "freq": 8}, {"ch": "_", "x": -0.44, "y": 0.7621, "sym": true, "freq": 7}, {"ch": "-", "x": -0.6741, "y": 0.5657, "sym": true, "freq": 6}, {"ch": ">", "x": -0.8269, "y": 0.301, "sym": true, "freq": 6}, {"ch": "+", "x": -0.88, "y": 0.0, "sym": true, "freq": 5}, {"ch": "[", "x": -0.8269, "y": -0.301, "sym": true, "freq": 5}, {"ch": "]", "x": -0.6741, "y": -0.5657, "sym": true, "freq": 5}, {"ch": "v", "x": -0.44, "y": -0.7621, "sym": false, "freq": 5}, {"ch": "0", "x": -0.1528, "y": -0.8666, "sym": false, "freq": 4}, {"ch": "`", "x": 0.1528, "y": -0.8666, "sym": true, "freq": 4}, {"ch": "/", "x": 0.44, "y": -0.7621, "sym": true, "freq": 3}, {"ch": "$", "x": 0.6741, "y": -0.5657, "sym": true, "freq": 2}, {"ch": "*", "x": 0.8269, "y": -0.301, "sym": true, "freq": 2}, {"ch": "1", "x": 1.069, "y": 0.1537, "sym": false, "freq": 2}, {"ch": "2", "x": 0.9824, "y": 0.4486, "sym": false, "freq": 2}, {"ch": "j", "x": 0.8162, "y": 0.7072, "sym": false, "freq": 2}, {"ch": "!", "x": 0.5839, "y": 0.9086, "sym": true, "freq": 1}, {"ch": "#", "x": 0.3043, "y": 1.0363, "sym": true, "freq": 1}, {"ch": "%", "x": 0.0, "y": 1.08, "sym": true, "freq": 1}, {"ch": "<", "x": -0.3043, "y": 1.0363, "sym": true, "freq": 1}, {"ch": "q", "x": -0.5839, "y": 0.9086, "sym": false, "freq": 1}, {"ch": "x", "x": -0.8162, "y": 0.7072, "sym": false, "freq": 1}, {"ch": "z", "x": -0.9824, "y": 0.4486, "sym": false, "freq": 1}, {"ch": "&", "x": -1.069, "y": 0.1537, "sym": true, "freq": 0}, {"ch": "'", "x": -1.069, "y": -0.1537, "sym": true, "freq": 0}, {"ch": "3", "x": -0.9824, "y": -0.4486, "sym": false, "freq": 0}, {"ch": "4", "x": -0.8162, "y": -0.7072, "sym": false, "freq": 0}, {"ch": "5", "x": -0.5839, "y": -0.9086, "sym": false, "freq": 0}, {"ch": "6", "x": -0.3043, "y": -1.0363, "sym": false, "freq": 0}, {"ch": "7", "x": -0.0, "y": -1.08, "sym": false, "freq": 0}, {"ch": "8", "x": 0.3043, "y": -1.0363, "sym": false, "freq": 0}, {"ch": "9", "x": 0.5839, "y": -0.9086, "sym": false, "freq": 0}, {"ch": "?", "x": 0.8162, "y": -0.7072, "sym": true, "freq": 0}, {"ch": "@", "x": 0.9824, "y": -0.4486, "sym": true, "freq": 0}, {"ch": "\\", "x": 1.069, "y": -0.1537, "sym": true, "freq": 0}, {"ch": "|", "x": 1.242, "y": 0.0, "sym": true, "freq": 0}]};
+
+const TABS = [
+  { key: "radial_code",  label: "Radial CODE (proposed)" },
+  { key: "radial_prose", label: "Radial PROSE (Irisbond-style)" },
+  { key: "qwerty_grid",  label: "QWERTY-swipe (Neuralink-style)" },
+];
+
+const SVGNS = "http://www.w3.org/2000/svg";
+let current = "radial_code";
+
+function maxFreq(layout) {
+  return Math.max(...DATA[layout].map(k => k.freq), 1);
+}
+
+function radius(freq, mf) {
+  // dot radius scales gently with frequency
+  return 0.075 + 0.07 * Math.sqrt(freq / mf);
+}
+
+function label(ch) {
+  if (ch === " ") return "\u2423";   // open box = space
+  return ch;
+}
+
+function drawBoard() {
+  const svg = document.getElementById("board");
+  svg.innerHTML = "";
+  const keys = DATA[current];
+  const mf = maxFreq(current);
+
+  // outer guide circle
+  const guide = document.createElementNS(SVGNS, "circle");
+  guide.setAttribute("cx", 0); guide.setAttribute("cy", 0); guide.setAttribute("r", 1.2);
+  guide.setAttribute("fill", "none");
+  guide.setAttribute("stroke", "#30363d");
+  guide.setAttribute("stroke-dasharray", "0.03,0.03");
+  svg.appendChild(guide);
+
+  // path layer (for typing demo) drawn under the keys
+  const path = document.createElementNS(SVGNS, "polyline");
+  path.setAttribute("id", "typePath");
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "var(--center)");
+  path.setAttribute("stroke-width", "0.02");
+  path.setAttribute("stroke-linejoin", "round");
+  path.setAttribute("opacity", "0.85");
+  svg.appendChild(path);
+
+  // cursor rest marker
+  const rest = document.createElementNS(SVGNS, "text");
+  rest.setAttribute("x", 0); rest.setAttribute("y", 0.03);
+  rest.setAttribute("text-anchor", "middle");
+  rest.setAttribute("font-size", "0.14");
+  rest.setAttribute("fill", "#8b949e");
+  rest.textContent = "+";
+  svg.appendChild(rest);
+
+  keys.forEach(k => {
+    const g = document.createElementNS(SVGNS, "g");
+    g.setAttribute("class", "key");
+    g.setAttribute("transform", `translate(${k.x},${-k.y})`); // flip y for screen coords
+
+    const isCenter = Math.hypot(k.x, k.y) < 0.18;
+    const fill = isCenter ? "var(--center)" : (k.sym ? "var(--symbol)" : "var(--letter)");
+
+    const c = document.createElementNS(SVGNS, "circle");
+    c.setAttribute("r", radius(k.freq, mf));
+    c.setAttribute("fill", fill);
+    c.setAttribute("opacity", k.freq === 0 ? 0.28 : 0.9);
+    g.appendChild(c);
+
+    const t = document.createElementNS(SVGNS, "text");
+    t.setAttribute("text-anchor", "middle");
+    t.setAttribute("dominant-baseline", "central");
+    t.setAttribute("font-size", "0.1");
+    t.setAttribute("fill", "#fff");
+    t.textContent = label(k.ch);
+    g.appendChild(t);
+
+    const title = document.createElementNS(SVGNS, "title");
+    title.textContent = `'${k.ch === " " ? "space" : k.ch}'  (freq ${k.freq}, dist ${Math.hypot(k.x,k.y).toFixed(2)})`;
+    g.appendChild(title);
+
+    svg.appendChild(g);
+  });
+}
+
+function updateRingInfo() {
+  const keys = [...DATA["radial_code"]].sort((a,b)=>Math.hypot(a.x,a.y)-Math.hypot(b.x,b.y));
+  const inner = keys.slice(0, 16).map(k => label(k.ch));
+  document.getElementById("ringInfo").innerHTML =
+    "Fastest 16 keys (center + inner rings):<br><b>" + inner.join(" &nbsp; ") + "</b>";
+}
+
+function showPath() {
+  const txt = document.getElementById("demo").value.toLowerCase();
+  const keys = DATA[current];
+  const pos = {};
+  keys.forEach(k => pos[k.ch] = [k.x, -k.y]);
+  const pts = [[0, 0]]; // start at cursor rest
+  let missing = 0;
+  for (const ch of txt) {
+    if (pos[ch]) pts.push(pos[ch]);
+    else if (ch !== " " || !pos[" "]) missing++;
+  }
+  const poly = document.getElementById("typePath");
+  if (poly) poly.setAttribute("points", pts.map(p => p.join(",")).join(" "));
+
+  const msg = document.getElementById("reachMsg");
+  const total = [...txt].filter(c => c.trim().length || c === " ").length;
+  if (missing > 0 && current !== "radial_code") {
+    msg.innerHTML = `<span style="color:var(--symbol)">&#9888; ${missing} character(s) are NOT on this layout's base surface</span> &mdash; they would need a layer-switch. The radial-code layout has all of them.`;
+  } else {
+    msg.innerHTML = `<span style="color:var(--accent)">&#10003; every character is reachable on the base layer.</span>`;
+  }
+}
+
+function buildTabs() {
+  const box = document.getElementById("tabs");
+  TABS.forEach(t => {
+    const b = document.createElement("button");
+    b.className = "tab" + (t.key === current ? " active" : "");
+    b.textContent = t.label;
+    b.onclick = () => {
+      current = t.key;
+      document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      drawBoard();
+      showPath();
+    };
+    box.appendChild(b);
+  });
+}
+
+buildTabs();
+drawBoard();
+updateRingInfo();
+showPath();
+document.getElementById("demo").addEventListener("input", showPath);
+</script>
+</body>
+</html>
