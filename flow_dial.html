@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The Flow Dial — a drivable Neuralink-cursor keyboard</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#141a23; --border:#283041; --text:#e6edf3;
+    --muted:#8b98a9; --a1:#1f6feb; --a2:#f85149; --a3:#2ea043; --a4:#ffd33d;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;flex-direction:column;}
+  header{padding:18px 28px 12px;border-bottom:1px solid var(--border);}
+  h1{margin:0 0 4px;font-size:20px;}
+  header p{margin:0;color:var(--muted);font-size:13.5px;max-width:780px;}
+  .main{flex:1;display:flex;flex-wrap:wrap;gap:20px;padding:18px 28px;align-items:flex-start;}
+  .left{flex:1 1 480px;min-width:340px;}
+  .right{flex:0 1 360px;min-width:280px;}
+  .stage{background:#0a0d13;border:1px solid var(--border);border-radius:14px;
+    position:relative;}
+  canvas{display:block;width:100%;height:auto;border-radius:14px;cursor:none;}
+  .hud{position:absolute;top:10px;left:12px;font-size:12px;color:var(--muted);
+    background:rgba(10,13,19,.6);padding:4px 8px;border-radius:6px;}
+  .out{background:var(--panel);border:1px solid var(--border);border-radius:12px;
+    padding:14px 16px;margin-bottom:14px;}
+  .out h2{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
+  .typed{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:18px;
+    min-height:28px;word-break:break-all;}
+  .typed .caret{color:var(--a4);animation:blink 1s steps(1) infinite;}
+  @keyframes blink{50%{opacity:0;}}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+  button,label.toggle{background:var(--panel);color:var(--text);border:1px solid var(--border);
+    border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+  button:hover{border-color:var(--muted);}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px;font-size:13.5px;color:#cdd6e0;}
+  .card h2{margin:0 0 8px;font-size:14px;color:var(--text);}
+  .card ol{margin:0;padding-left:18px;}
+  .card li{margin:5px 0;}
+  .stat{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;border-bottom:1px dashed var(--border);}
+  .stat:last-child{border:none;}
+  .stat b{font-variant-numeric:tabular-nums;}
+  kbd{background:#21262d;border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>The Flow Dial</h1>
+  <p>A drivable concept of a Neuralink-cursor keyboard. <b>Never stop, never click.</b>
+     Move your mouse from the center toward a letter; likely next-letters grow into big easy arcs
+     (the language model "inflates" them). You commit a letter by <b>flowing outward</b> through its arc.
+     Then drift back to center for the next one.</p>
+</header>
+
+<div class="main">
+  <div class="left">
+    <div class="stage">
+      <canvas id="cv" width="640" height="640"></canvas>
+      <div class="hud" id="hud">move from the center →</div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="out">
+      <h2>What you've written</h2>
+      <div class="typed" id="typed"><span class="caret">▍</span></div>
+    </div>
+
+    <div class="controls">
+      <button id="clear">Clear</button>
+      <label class="toggle"><input type="checkbox" id="noise" /> Simulate BCI tremor</label>
+      <label class="toggle"><input type="checkbox" id="predict" checked /> Prediction on</label>
+    </div>
+
+    <div class="card">
+      <h2>How to drive it</h2>
+      <ol>
+        <li>Rest your cursor in the <b>center</b> — that's home, it costs nothing.</li>
+        <li>Glide <b>outward</b> toward the letter you want. Its arc highlights.</li>
+        <li>Cross the <b>outer ring</b> inside that arc → the letter commits.</li>
+        <li>Drift back through the center; the next likely letters are already big.</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>Feel for these things</h2>
+      <ol>
+        <li>You <b>never click</b> and never have to hold still on a tiny target.</li>
+        <li>After a letter, common follow-ons are <b>huge</b> — easy even when sloppy.</li>
+        <li>Flip on <b>tremor</b>: big arcs still work; that's the noise-tolerance argument.</li>
+        <li>Turn <b>prediction off</b> to feel how much the language model is carrying.</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <div class="stat"><span>Characters committed</span><b id="nChar">0</b></div>
+      <div class="stat"><span>Time</span><b id="elapsed">0.0 s</b></div>
+      <div class="stat"><span>Effective WPM</span><b id="wpm">0.0</b></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const SIZE = 640, C = SIZE/2;
+const INNER = 70;     // rest zone radius
+const RING  = 250;    // commit radius
+const LABELR = 200;   // where labels sit
+
+// --- candidates: 26 letters + space + backspace ---
+const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
+const SPACE = "␣", BKSP = "⌫";
+const CANDS = [...LETTERS, SPACE, BKSP];
+
+// --- tiny bigram-ish model: base unigram freq + a few common follow-ons ---
+const UNI = {e:12.7,t:9.1,a:8.2,o:7.5,i:7,n:6.7,s:6.3,h:6.1,r:6,d:4.3,l:4,c:2.8,
+  u:2.8,m:2.4,w:2.4,f:2.2,g:2,y:2,p:1.9,b:1.5,v:1,k:0.8,j:0.15,x:0.15,q:0.1,z:0.07};
+const BI = {
+  t:{h:5,o:2,e:1.5,i:1,r:1,a:1}, h:{e:6,a:2,i:1.5,o:1}, e:{r:3,s:2.5,n:2,d:2,a:1.5,' ':3},
+  a:{n:3,t:2.5,l:2,r:2,s:1.5,'␣':1}, i:{n:4,s:2,t:2,o:1.5,c:1}, o:{n:3,u:2.5,r:2,f:2,o:1},
+  n:{d:2,g:2,t:1.5,'␣':3,e:1}, s:{t:2,'␣':3,e:1.5,s:1,h:1}, r:{e:3,o:1.5,i:1.5,a:1},
+  d:{'␣':3,e:1.5,i:1}, l:{e:2,l:2,y:1.5,i:1,o:1}, c:{o:2,h:2,e:1.5,a:1,k:1},
+  ' ':{t:6,a:4,s:3,h:2,w:2,i:2,o:2,b:2,c:2,f:2,m:2,p:2}, '␣':{t:6,a:4,s:3,h:2,w:2,i:2,o:2,b:2,c:2,f:2,m:2,p:2}
+};
+
+let text = "";
+let lastCommitChar = "␣";
+let mouse = {x:C, y:C-1};
+let canCommit = true;   // hysteresis: must return inside INNER before next commit
+let started = null;
+let nChar = 0;
+let highlight = -1;
+let flashT = 0, flashIdx = -1;
+
+function probs(){
+  const usePred = document.getElementById("predict").checked;
+  const p = {};
+  let prev = lastCommitChar;
+  for(const ch of CANDS){
+    let base = (ch===SPACE)?6 : (ch===BKSP)?1.2 : (UNI[ch]||0.1);
+    let bonus = 0;
+    if(usePred){
+      const key = prev===SPACE?'␣':prev;
+      const row = BI[key] || BI[prev];
+      if(row){
+        const lk = (ch===SPACE)?'␣':ch;
+        bonus = (row[lk]||row[ch]||0) * 6;
+      }
+    }
+    p[ch] = base + bonus + 0.3; // floor so nothing is unreachable
+  }
+  const tot = Object.values(p).reduce((a,b)=>a+b,0);
+  for(const k in p) p[k]/=tot;
+  return p;
+}
+
+// assign each candidate an angular arc, width ∝ sqrt(prob) for hittability
+function arcs(){
+  const p = probs();
+  const w = CANDS.map(c=>Math.sqrt(p[c]));
+  const tot = w.reduce((a,b)=>a+b,0);
+  let a = -Math.PI/2; // start at top
+  const out = [];
+  CANDS.forEach((c,i)=>{
+    const span = (w[i]/tot)*2*Math.PI;
+    out.push({ch:c, a0:a, a1:a+span, mid:a+span/2, prob:p[c]});
+    a += span;
+  });
+  return out;
+}
+
+function angleOf(x,y){
+  let a = Math.atan2(y-C, x-C);
+  return a;
+}
+function inArc(ang, ar){
+  // normalize ang into [ar.a0, ar.a0+2pi)
+  let a = ang;
+  while(a < ar.a0) a += 2*Math.PI;
+  while(a >= ar.a0 + 2*Math.PI) a -= 2*Math.PI;
+  return a >= ar.a0 && a < ar.a1;
+}
+
+function commit(ch){
+  if(!started) started = performance.now();
+  if(ch===BKSP){ text = text.slice(0,-1); lastCommitChar = text.slice(-1)||"␣"; }
+  else if(ch===SPACE){ text += " "; lastCommitChar = "␣"; nChar++; }
+  else { text += ch; lastCommitChar = ch; nChar++; }
+  flashT = 1; flashIdx = CANDS.indexOf(ch);
+  render();
+  updateText();
+}
+
+function updateText(){
+  document.getElementById("typed").innerHTML =
+    text.replace(/ /g,"&nbsp;") + '<span class="caret">▍</span>';
+  document.getElementById("nChar").textContent = nChar;
+  if(started){
+    const secs = (performance.now()-started)/1000;
+    document.getElementById("elapsed").textContent = secs.toFixed(1)+" s";
+    const wpm = (nChar/5)/(secs/60);
+    document.getElementById("wpm").textContent = (isFinite(wpm)?wpm:0).toFixed(1);
+  }
+}
+
+function render(){
+  ctx.clearRect(0,0,SIZE,SIZE);
+  const AR = arcs();
+
+  // effective (possibly noisy) cursor
+  let mx = mouse.x, my = mouse.y;
+  if(document.getElementById("noise").checked){
+    mx += (Math.random()-0.5)*36;
+    my += (Math.random()-0.5)*36;
+  }
+  const dx = mx-C, dy = my-C, r = Math.hypot(dx,dy);
+  const ang = angleOf(mx,my);
+
+  // which arc is the heading in
+  highlight = AR.findIndex(ar=>inArc(ang, ar));
+
+  // hysteresis + commit
+  if(r < INNER) canCommit = true;
+  if(r >= RING && canCommit && highlight>=0){
+    commit(AR[highlight].ch);
+    canCommit = false;
+  }
+
+  // draw arcs
+  AR.forEach((ar,i)=>{
+    const hot = (i===highlight && r>INNER);
+    ctx.beginPath();
+    ctx.moveTo(C,C);
+    ctx.arc(C,C, RING, ar.a0, ar.a1);
+    ctx.closePath();
+    let fill = "#0e141c";
+    if(i===flashIdx && flashT>0) fill = `rgba(46,160,67,${0.5*flashT})`;
+    else if(hot) fill = "rgba(31,111,235,0.30)";
+    else fill = (i%2)?"#0d131b":"#0b1016";
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.strokeStyle = "#1b2230"; ctx.lineWidth=1; ctx.stroke();
+
+    // label, size scales with arc probability
+    const lr = LABELR;
+    const lx = C + lr*Math.cos(ar.mid), ly = C + lr*Math.sin(ar.mid);
+    const fs = 12 + 26*Math.sqrt(ar.prob);
+    ctx.fillStyle = hot ? "#fff" : (ar.ch===SPACE||ar.ch===BKSP ? "#f0a35a" : "#aeb9c7");
+    ctx.font = `${hot?700:600} ${fs.toFixed(0)}px -apple-system,Segoe UI,Roboto,sans-serif`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText(ar.ch, lx, ly);
+  });
+
+  // commit ring
+  ctx.beginPath(); ctx.arc(C,C,RING,0,2*Math.PI);
+  ctx.strokeStyle="#2a3banaa"; ctx.lineWidth=1.5; ctx.strokeStyle="#33415a"; ctx.stroke();
+
+  // rest zone
+  ctx.beginPath(); ctx.arc(C,C,INNER,0,2*Math.PI);
+  ctx.fillStyle="#0c1118"; ctx.fill();
+  ctx.strokeStyle = canCommit ? "#2ea043" : "#7d4a1f"; ctx.lineWidth=2; ctx.stroke();
+  ctx.fillStyle="#5b6776"; ctx.font="13px -apple-system,sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText(canCommit? "rest" : "return", C, C-4);
+  ctx.fillStyle="#3d4756"; ctx.font="10px -apple-system,sans-serif";
+  ctx.fillText("home", C, C+12);
+
+  // trail line from center to cursor
+  ctx.beginPath(); ctx.moveTo(C,C); ctx.lineTo(mx,my);
+  ctx.strokeStyle="rgba(255,211,61,0.35)"; ctx.lineWidth=2; ctx.stroke();
+
+  // cursor
+  ctx.beginPath(); ctx.arc(mx,my,7,0,2*Math.PI);
+  ctx.fillStyle="#ffd33d"; ctx.fill();
+  ctx.strokeStyle="#0b0e14"; ctx.lineWidth=2; ctx.stroke();
+
+  // hud
+  const h = document.getElementById("hud");
+  if(highlight>=0 && r>INNER){
+    h.textContent = (r>=RING? "committing ‘"+AR[highlight].ch+"’" : "aiming ‘"+AR[highlight].ch+"’ — push outward");
+  } else h.textContent = "rest in center · glide outward to a letter";
+
+  if(flashT>0) flashT -= 0.06;
+}
+
+function loop(){ render(); requestAnimationFrame(loop); }
+
+cv.addEventListener("mousemove", e=>{
+  const rect = cv.getBoundingClientRect();
+  mouse.x = (e.clientX-rect.left) * (SIZE/rect.width);
+  mouse.y = (e.clientY-rect.top)  * (SIZE/rect.height);
+});
+// touch support
+cv.addEventListener("touchmove", e=>{
+  const rect = cv.getBoundingClientRect(); const t=e.touches[0];
+  mouse.x=(t.clientX-rect.left)*(SIZE/rect.width);
+  mouse.y=(t.clientY-rect.top)*(SIZE/rect.height);
+  e.preventDefault();
+},{passive:false});
+
+document.getElementById("clear").onclick=()=>{
+  text=""; lastCommitChar="␣"; nChar=0; started=null; updateText();
+  document.getElementById("elapsed").textContent="0.0 s";
+  document.getElementById("wpm").textContent="0.0";
+};
+
+updateText();
+loop();
+</script>
+</body>
+</html>
